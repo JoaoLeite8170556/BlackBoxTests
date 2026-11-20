@@ -2,7 +2,7 @@
 set -euo pipefail
 URL="http://127.0.0.1:5173/"
 if ! curl -sf -o /dev/null "$URL"; then
-  echo "A arrancar o Camry Found..."
+  echo "A arrancar o Car Found..."
   cd "$(dirname "$0")/camry-found"
   npm run dev -- --host 127.0.0.1 --port 5173 &
   for i in {1..30}; do

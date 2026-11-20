@@ -56,7 +56,7 @@ export function estimateImportCost(listing: Listing): CostBreakdown {
     listing.seller === "particular"
       ? "Compra a particular na UE: tipicamente sem IVA português sobre o preço."
       : "Stand na UE: verifica se o preço inclui IVA local e se há margem de IVA.",
-    "Híbridos Camry costumam beneficiar de ISV mais baixo face a gasolina pura.",
+    "Híbridos costumam beneficiar de ISV mais baixo face a gasolina pura.",
   ];
 
   const totalLanded =

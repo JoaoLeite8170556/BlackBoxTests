@@ -1,5 +1,5 @@
-import CamryApp from "./CamryApp";
+import CarFoundApp from "./CarFoundApp";
 
 export default function Page() {
-  return <CamryApp />;
+  return <CarFoundApp />;
 }

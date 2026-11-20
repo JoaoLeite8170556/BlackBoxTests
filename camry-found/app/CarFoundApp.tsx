@@ -28,7 +28,7 @@ type ApiResponse = {
   error?: string;
 };
 
-export default function CamryApp() {
+export default function CarFoundApp() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [sourceTotal, setSourceTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -109,7 +109,7 @@ export default function CamryApp() {
   return (
     <div className="app">
       <nav className="site-nav" aria-label="Principal">
-        <div className="nav-brand">Camry Found</div>
+        <div className="nav-brand">Car Found</div>
         <a className="nav-link" href="#anuncios">
           Ver anúncios
         </a>
@@ -120,7 +120,7 @@ export default function CamryApp() {
           <img src={HERO_IMAGE} alt="" width={2000} height={1200} fetchPriority="high" />
         </div>
         <div className="hero-copy">
-          <p className="hero-brand">Camry Found</p>
+          <p className="hero-brand">Car Found</p>
           <h1 className="hero-title">Mercedes, Audi, BMW e Volvo até 25 000 €</h1>
           <p className="hero-lead">
             Anúncios reais no AutoScout24 com até 100 000 km — e estimativa de ISV, transporte e
@@ -407,7 +407,7 @@ export default function CamryApp() {
 
       <footer className="site-footer">
         <div>
-          <strong>Camry Found</strong> — Mercedes, Audi, BMW e Volvo no AutoScout24 para importar
+          <strong>Car Found</strong> — Mercedes, Audi, BMW e Volvo no AutoScout24 para importar
           para Portugal.
         </div>
         <div>Estimativas não oficiais · confirma sempre com a AT / IMT.</div>
