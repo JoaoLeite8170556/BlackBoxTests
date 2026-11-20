@@ -1,12 +1,24 @@
-import type { Fuel, Listing, Origin } from "@/src/data/listings";
+import type { Fuel, Listing, Make, Origin } from "@/src/data/listings";
+import { BUDGET_MAX_EUR, BUDGET_MAX_KM } from "@/src/data/listings";
 
 const AS24_ORIGIN = "https://www.autoscout24.com";
 
-/** Hardcoded search paths only — never accept visitor-controlled URLs (SSRF). */
+const EU =
+  "cy=D%2CA%2CB%2CE%2CF%2CI%2CL%2CNL&atype=C&desc=0&ustate=N%2CU&priceto=25000&kmto=100000&fregfrom=2016";
+
+/**
+ * Hardcoded AutoScout24 search paths only — never accept visitor-controlled URLs (SSRF).
+ * Mercedes, Audi, BMW, Volvo · ≤ €25 000 · ≤ 100 000 km
+ */
 const SEARCH_PATHS = [
-  "/lst/toyota/camry?atype=C&cy=D%2CA%2CB%2CE%2CF%2CI%2CL%2CNL&desc=0&sort=age&ustate=N%2CU&fregfrom=2015&page=1",
-  "/lst/toyota/camry?atype=C&cy=D%2CA%2CB%2CE%2CF%2CI%2CL%2CNL&desc=0&sort=age&ustate=N%2CU&fregfrom=2015&page=2",
-  "/lst/toyota/camry?atype=C&cy=D%2CA%2CB%2CE%2CF%2CI%2CL%2CNL&desc=0&sort=price&ustate=N%2CU&fregfrom=2015&page=1",
+  `/lst/mercedes-benz?${EU}&sort=age&page=1`,
+  `/lst/audi?${EU}&sort=age&page=1`,
+  `/lst/bmw?${EU}&sort=age&page=1`,
+  `/lst/volvo?${EU}&sort=age&page=1`,
+  `/lst/mercedes-benz?${EU}&sort=price&page=1`,
+  `/lst/audi?${EU}&sort=price&page=1`,
+  `/lst/bmw?${EU}&sort=price&page=1`,
+  `/lst/volvo?${EU}&sort=price&page=1`,
 ] as const;
 
 type As24Listing = {
@@ -31,7 +43,11 @@ type As24Listing = {
 
 type CacheEntry = { at: number; listings: Listing[]; sourceTotal: number };
 let cache: CacheEntry | null = null;
-const CACHE_MS = 10 * 60 * 1000;
+const CACHE_MS = 15 * 60 * 1000;
+
+/** Simple process-wide gate so cold-cache storms don't hammer AutoScout24. */
+let lastFreshFetchAt = 0;
+const MIN_FRESH_GAP_MS = 20_000;
 
 const ORIGIN_MAP: Record<string, Origin> = {
   DE: "DE",
@@ -45,7 +61,7 @@ const ORIGIN_MAP: Record<string, Origin> = {
   E: "ES",
   IT: "IT",
   I: "IT",
-  AT: "DE", // treat AT transport like DE for estimate
+  AT: "DE",
   A: "DE",
   LU: "BE",
   L: "BE",
@@ -65,12 +81,12 @@ function parseYear(raw?: string): number | null {
 }
 
 function parsePowerHp(raw?: string): number {
-  if (!raw) return 218;
+  if (!raw) return 150;
   const hp = raw.match(/(\d+)\s*hp/i);
   if (hp) return Number(hp[1]);
   const kw = raw.match(/(\d+)\s*kW/i);
   if (kw) return Math.round(Number(kw[1]) * 1.36);
-  return 218;
+  return 150;
 }
 
 function mapFuel(raw?: string): Fuel {
@@ -85,10 +101,19 @@ function mapOrigin(code?: string): Origin {
   return ORIGIN_MAP[code.toUpperCase()] ?? "DE";
 }
 
+function mapMake(raw?: string): Make | null {
+  const m = (raw || "").toLowerCase();
+  if (m.includes("mercedes")) return "Mercedes-Benz";
+  if (m.includes("audi")) return "Audi";
+  if (m.includes("bmw")) return "BMW";
+  if (m.includes("volvo")) return "Volvo";
+  return null;
+}
+
 function estimateCo2(fuel: Fuel, year: number): number {
   if (fuel === "híbrido") return year >= 2021 ? 98 : year >= 2018 ? 105 : 115;
-  if (fuel === "diesel") return 140;
-  return 160;
+  if (fuel === "diesel") return 130;
+  return 155;
 }
 
 function detail(listing: As24Listing, label: string): string | undefined {
@@ -97,43 +122,69 @@ function detail(listing: As24Listing, label: string): string | undefined {
 
 function upgradeImage(url?: string): string {
   if (!url) {
-    return "https://images.unsplash.com/photo-1621007947382-bb3c3994e3fb?auto=format&fit=crop&w=1400&q=80";
+    return "https://images.unsplash.com/photo-1555215695-3004980ad54e?auto=format&fit=crop&w=1400&q=80";
   }
   return url.replace(/\/\d+x\d+\.webp$/i, "/800x600.webp");
 }
 
+function titleCaseCity(city: string): string {
+  return city
+    .toLowerCase()
+    .split(/\s+/)
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+    .join(" ");
+}
+
+const JUNK_TITLE =
+  /\b(noleggio|leasing|loa\b|huur|miete|aluguer|renting|abonnement|e-step|egret|quadricycle|bromfiets)\b/i;
+
 export function mapAs24Listing(raw: As24Listing): Listing | null {
   const priceEur = raw.price?.priceRaw;
-  if (!priceEur || priceEur <= 0) return null;
+  // Skip lease/rent teaser prices and anything outside the buy budget.
+  if (!priceEur || priceEur < 8_000 || priceEur > BUDGET_MAX_EUR) return null;
+
+  const make = mapMake(raw.vehicle?.make) ?? mapMake(raw.title);
+  if (!make) return null;
+
+  const blob = `${raw.title || ""} ${raw.vehicle?.modelVersionInput || ""}`;
+  if (JUNK_TITLE.test(blob)) return null;
 
   const year =
     parseYear(detail(raw, "First registration")) ??
     parseYear(detail(raw, "Erstzulassung")) ??
-    2015;
+    2016;
   const mileageKm =
     parseNumber(detail(raw, "Mileage")) ??
     parseNumber(raw.vehicle?.mileageInKm) ??
     0;
+  if (mileageKm <= 0 || mileageKm > BUDGET_MAX_KM) return null;
+  if (!raw.vehicle?.model?.trim()) return null;
+
   const powerHp = parsePowerHp(detail(raw, "Power"));
   const engineCc =
     parseNumber(raw.vehicle?.engineDisplacementInCCM) ??
-    (mapFuel(raw.vehicle?.fuel) === "híbrido" ? 2487 : 2000);
+    (mapFuel(raw.vehicle?.fuel) === "híbrido" ? 2000 : 1800);
   const fuel = mapFuel(raw.vehicle?.fuel);
   const transmissionRaw = (detail(raw, "Gear") || raw.vehicle?.transmission || "").toLowerCase();
   const transmission = transmissionRaw.includes("manual") ? "manual" : "automática";
   const origin = mapOrigin(raw.location?.countryCode);
-  const city = raw.location?.city || ORIGIN_MAP[raw.location?.countryCode || ""] || "Europa";
+  const cityRaw = raw.location?.city || "Europa";
   const sellerType = (raw.seller?.type || "").toLowerCase().includes("private")
     ? "particular"
     : "stand";
+
+  const model = raw.vehicle?.model?.trim();
   const version = raw.vehicle?.modelVersionInput?.trim();
-  const title = version
-    ? `Camry ${version}`.replace(/^Camry Camry/i, "Camry")
-    : raw.title || "Toyota Camry";
+  const title =
+    [make, model, version].filter(Boolean).join(" ").replace(/\s+/g, " ").trim() ||
+    raw.title ||
+    make;
+
   const path = raw.url?.startsWith("http") ? raw.url : `${AS24_ORIGIN}${raw.url || ""}`;
 
   return {
     id: raw.id,
+    make,
     title,
     year,
     mileageKm,
@@ -144,14 +195,14 @@ export function mapAs24Listing(raw: As24Listing): Listing | null {
     co2Gkm: estimateCo2(fuel, year),
     transmission,
     origin,
-    city: city.charAt(0) + city.slice(1).toLowerCase(),
+    city: titleCaseCity(cityRaw),
     seller: sellerType,
     image: upgradeImage(raw.images?.[0]),
     highlights: [
       "Anúncio real AutoScout24",
       raw.location?.countryCode ? `Origem ${raw.location.countryCode}` : "UE",
       fuel,
-    ].filter(Boolean),
+    ],
     sourceUrl: path,
     source: "AutoScout24",
   };
@@ -165,7 +216,7 @@ async function fetchSearchPage(path: (typeof SEARCH_PATHS)[number]): Promise<As2
       Accept: "text/html,application/xhtml+xml",
       "Accept-Language": "en-GB,en;q=0.9,pt;q=0.8",
     },
-    next: { revalidate: 600 },
+    next: { revalidate: 900 },
   });
   if (!res.ok) throw new Error(`AutoScout24 ${res.status}`);
   const html = await res.text();
@@ -174,12 +225,12 @@ async function fetchSearchPage(path: (typeof SEARCH_PATHS)[number]): Promise<As2
   );
   if (!match?.[1]) return [];
   const data = JSON.parse(match[1]) as {
-    props?: { pageProps?: { listings?: As24Listing[]; numberOfResults?: number } };
+    props?: { pageProps?: { listings?: As24Listing[] } };
   };
   return data.props?.pageProps?.listings ?? [];
 }
 
-export async function fetchRealCamryListings(): Promise<{
+export async function fetchBudgetPremiumListings(): Promise<{
   listings: Listing[];
   sourceTotal: number;
   fetchedAt: string;
@@ -194,9 +245,25 @@ export async function fetchRealCamryListings(): Promise<{
     };
   }
 
-  const pages = await Promise.all(SEARCH_PATHS.map((p) => fetchSearchPage(p)));
+  const now = Date.now();
+  if (now - lastFreshFetchAt < MIN_FRESH_GAP_MS && cache) {
+    return {
+      listings: cache.listings,
+      sourceTotal: cache.sourceTotal,
+      fetchedAt: new Date(cache.at).toISOString(),
+      cached: true,
+    };
+  }
+  lastFreshFetchAt = now;
+
+  // Sequential batches of 4 to reduce burst load on AutoScout24
+  const batchA = SEARCH_PATHS.slice(0, 4);
+  const batchB = SEARCH_PATHS.slice(4);
+  const pagesA = await Promise.all(batchA.map((p) => fetchSearchPage(p)));
+  const pagesB = await Promise.all(batchB.map((p) => fetchSearchPage(p)));
+
   const byId = new Map<string, Listing>();
-  for (const page of pages) {
+  for (const page of [...pagesA, ...pagesB]) {
     for (const raw of page) {
       const mapped = mapAs24Listing(raw);
       if (mapped) byId.set(mapped.id, mapped);
@@ -213,3 +280,6 @@ export async function fetchRealCamryListings(): Promise<{
     cached: false,
   };
 }
+
+/** @deprecated use fetchBudgetPremiumListings */
+export const fetchRealCamryListings = fetchBudgetPremiumListings;

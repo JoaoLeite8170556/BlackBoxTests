@@ -2,10 +2,10 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Camry Found",
+  title: "Camry Found — Mercedes, Audi, BMW e Volvo",
   description:
-    "Encontra Toyota Camry reais na Europa (AutoScout24) e estima o custo de importação para Portugal.",
-};
+    "Encontra Mercedes, Audi, BMW e Volvo até 25 000 € e 100 000 km no AutoScout24, com estimativa de importação para Portugal.",
+}
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

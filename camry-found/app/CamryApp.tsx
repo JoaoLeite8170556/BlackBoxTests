@@ -3,9 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
+  BUDGET_MAX_EUR,
+  BUDGET_MAX_KM,
+  MAKE_LABELS,
   ORIGIN_LABELS,
   type Fuel,
   type Listing,
+  type Make,
   type Origin,
 } from "@/src/data/listings";
 import { estimateImportCost, formatEur, formatKm } from "@/src/lib/importCost";
@@ -14,7 +18,7 @@ import "./app.css";
 type SortKey = "landed" | "price" | "year" | "mileage";
 
 const HERO_IMAGE =
-  "https://images.unsplash.com/photo-1621007947382-bb3c3994e3fb?auto=format&fit=crop&w=2000&q=80";
+  "https://images.unsplash.com/photo-1555215695-3004980ad54e?auto=format&fit=crop&w=2000&q=80";
 
 type ApiResponse = {
   listings: Listing[];
@@ -31,11 +35,12 @@ export default function CamryApp() {
   const [error, setError] = useState<string | null>(null);
   const [fetchedAt, setFetchedAt] = useState<string | null>(null);
 
+  const [make, setMake] = useState<"all" | Make>("all");
   const [origin, setOrigin] = useState<"all" | Origin>("all");
   const [fuel, setFuel] = useState<"all" | Fuel>("all");
-  const [maxPrice, setMaxPrice] = useState(45000);
-  const [maxKm, setMaxKm] = useState(200000);
-  const [minYear, setMinYear] = useState(2015);
+  const [maxPrice, setMaxPrice] = useState(BUDGET_MAX_EUR);
+  const [maxKm, setMaxKm] = useState(BUDGET_MAX_KM);
+  const [minYear, setMinYear] = useState(2016);
   const [sort, setSort] = useState<SortKey>("landed");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -73,6 +78,7 @@ export default function CamryApp() {
 
   const filtered = useMemo(() => {
     const rows = enriched.filter(({ listing }) => {
+      if (make !== "all" && listing.make !== make) return false;
       if (origin !== "all" && listing.origin !== origin) return false;
       if (fuel !== "all" && listing.fuel !== fuel) return false;
       if (listing.priceEur > maxPrice) return false;
@@ -96,7 +102,7 @@ export default function CamryApp() {
     });
 
     return rows;
-  }, [enriched, origin, fuel, maxPrice, maxKm, minYear, sort]);
+  }, [enriched, make, origin, fuel, maxPrice, maxKm, minYear, sort]);
 
   const selected = filtered.find((r) => r.listing.id === selectedId) ?? filtered[0] ?? null;
 
@@ -115,14 +121,14 @@ export default function CamryApp() {
         </div>
         <div className="hero-copy">
           <p className="hero-brand">Camry Found</p>
-          <h1 className="hero-title">Toyota Camry reais para importar para Portugal</h1>
+          <h1 className="hero-title">Mercedes, Audi, BMW e Volvo até 25 000 €</h1>
           <p className="hero-lead">
-            Anúncios ao vivo do AutoScout24 na Europa, com estimativa de ISV, transporte e
-            matrícula em solo português.
+            Anúncios reais no AutoScout24 com até 100 000 km — e estimativa de ISV, transporte e
+            matrícula em Portugal.
           </p>
           <div className="cta-row">
             <a className="btn btn-primary" href="#anuncios">
-              Explorar Camrys
+              Explorar anúncios
             </a>
             <a className="btn btn-ghost" href="#como-funciona">
               Como funciona
@@ -133,21 +139,26 @@ export default function CamryApp() {
 
       <section className="section" id="anuncios">
         <div className="section-head">
-          <p className="section-kicker">AutoScout24 · Europa</p>
-          <h2 className="section-title">Anúncios Camry com custo em Portugal</h2>
+          <p className="section-kicker">AutoScout24 · ≤ 25 000 € · ≤ 100 000 km</p>
+          <h2 className="section-title">Anúncios premium com custo em Portugal</h2>
           <p className="section-lead">
-            Resultados reais. Cada linha mostra o preço no anúncio e o valor estimado à porta
-            em Portugal.
+            Mercedes-Benz, Audi, BMW e Volvo. Cada linha mostra o preço no anúncio e o valor
+            estimado à porta em Portugal.
           </p>
         </div>
 
         <div className="sample-banner" role="status">
           Fonte: AutoScout24
-          {sourceTotal ? ` · ${sourceTotal} Camrys obtidos` : ""}
+          {sourceTotal ? ` · ${sourceTotal} carros no orçamento` : ""}
           {fetchedAt
             ? ` · atualizado ${new Date(fetchedAt).toLocaleString("pt-PT", { timeZone: "Europe/Lisbon" })} (Europe/Lisbon)`
             : ""}
-          <button type="button" className="refresh-btn" onClick={() => void loadListings()} disabled={loading}>
+          <button
+            type="button"
+            className="refresh-btn"
+            onClick={() => void loadListings()}
+            disabled={loading}
+          >
             {loading ? "A carregar…" : "Atualizar"}
           </button>
         </div>
@@ -159,6 +170,22 @@ export default function CamryApp() {
         )}
 
         <div className="filters">
+          <div className="filter-field">
+            <label htmlFor="make">Marca</label>
+            <select
+              id="make"
+              value={make}
+              onChange={(e) => setMake(e.target.value as "all" | Make)}
+            >
+              <option value="all">Todas (4 marcas)</option>
+              {MAKE_LABELS.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="filter-field">
             <label htmlFor="origin">Origem</label>
             <select
@@ -194,11 +221,13 @@ export default function CamryApp() {
             <input
               id="maxPrice"
               type="number"
-              min={1000}
-              max={80000}
+              min={5000}
+              max={BUDGET_MAX_EUR}
               step={500}
               value={maxPrice}
-              onChange={(e) => setMaxPrice(Number(e.target.value) || 0)}
+              onChange={(e) =>
+                setMaxPrice(Math.min(BUDGET_MAX_EUR, Number(e.target.value) || 0))
+              }
             />
           </div>
 
@@ -208,10 +237,10 @@ export default function CamryApp() {
               id="maxKm"
               type="number"
               min={10000}
-              max={400000}
+              max={BUDGET_MAX_KM}
               step={5000}
               value={maxKm}
-              onChange={(e) => setMaxKm(Number(e.target.value) || 0)}
+              onChange={(e) => setMaxKm(Math.min(BUDGET_MAX_KM, Number(e.target.value) || 0))}
             />
           </div>
 
@@ -220,10 +249,10 @@ export default function CamryApp() {
             <input
               id="minYear"
               type="number"
-              min={1990}
+              min={2010}
               max={2026}
               value={minYear}
-              onChange={(e) => setMinYear(Number(e.target.value) || 2015)}
+              onChange={(e) => setMinYear(Number(e.target.value) || 2016)}
             />
           </div>
 
@@ -242,14 +271,14 @@ export default function CamryApp() {
           <span>
             {loading
               ? "A obter anúncios reais…"
-              : `${filtered.length} ${filtered.length === 1 ? "Camry encontrado" : "Camrys encontrados"}`}
+              : `${filtered.length} ${filtered.length === 1 ? "carro encontrado" : "carros encontrados"}`}
           </span>
           <span>Estimativa ISV orientativa · UE → Portugal</span>
         </div>
 
         {!loading && filtered.length === 0 && !error ? (
           <div className="empty">
-            Nenhum Camry com estes filtros. Alarga o orçamento ou os quilómetros.
+            Nenhum carro com estes filtros. Alarga a marca, o ano ou o combustível.
           </div>
         ) : (
           <div className="listing-grid" role="list">
@@ -349,15 +378,14 @@ export default function CamryApp() {
           <p className="section-kicker">Processo</p>
           <h2 className="section-title">Do anúncio europeu à matrícula portuguesa</h2>
           <p className="section-lead">
-            Três passos claros para decidir se aquele Camry híbrido vale o importe.
+            Três passos para decidir se aquele Mercedes, Audi, BMW ou Volvo vale o importe.
           </p>
         </div>
         <div className="steps">
           <article className="step">
-            <h3>Encontra o Camry</h3>
+            <h3>Encontra o carro</h3>
             <p>
-              Comparamos anúncios reais no AutoScout24 na Alemanha, Países Baixos, Bélgica e
-              outros mercados.
+              Filtra anúncios reais no AutoScout24 até 25 000 € e 100 000 km nas quatro marcas.
             </p>
           </article>
           <article className="step">
@@ -370,8 +398,8 @@ export default function CamryApp() {
           <article className="step">
             <h3>Abre o anúncio original</h3>
             <p>
-              Confirma fotos, histórico e contacto no AutoScout24 e valida o cálculo oficial
-              com um despachante.
+              Confirma fotos, histórico e contacto no AutoScout24 e valida o cálculo oficial com
+              um despachante.
             </p>
           </article>
         </div>
@@ -379,8 +407,8 @@ export default function CamryApp() {
 
       <footer className="site-footer">
         <div>
-          <strong>Camry Found</strong> — anúncios reais AutoScout24 para importar Camry para
-          Portugal.
+          <strong>Camry Found</strong> — Mercedes, Audi, BMW e Volvo no AutoScout24 para importar
+          para Portugal.
         </div>
         <div>Estimativas não oficiais · confirma sempre com a AT / IMT.</div>
       </footer>
@@ -417,9 +445,9 @@ function ListingRow({
           {ORIGIN_LABELS[listing.origin]}
         </p>
         <div className="listing-tags">
+          <span className="tag">{listing.make}</span>
           <span className="tag">{listing.fuel}</span>
           <span className="tag">{listing.transmission}</span>
-          <span className="tag">{listing.seller}</span>
           <span className="tag">AutoScout24</span>
         </div>
       </div>
