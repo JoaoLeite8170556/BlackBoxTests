@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState, useDeferredValue } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BUDGET_MAX_EUR,
@@ -20,6 +20,8 @@ type SortKey = "landed" | "price" | "year" | "mileage";
 const HERO_IMAGE =
   "https://images.unsplash.com/photo-1555215695-3004980ad54e?auto=format&fit=crop&w=2000&q=80";
 
+const QUICK_SEARCHES = ["Volvo XC40", "Audi A3", "BMW 118", "Mercedes A 180", "híbrido", "diesel"];
+
 type ApiResponse = {
   listings: Listing[];
   sourceTotal: number;
@@ -28,6 +30,24 @@ type ApiResponse = {
   error?: string;
 };
 
+function matchesQuery(listing: Listing, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const haystack = [
+    listing.title,
+    listing.make,
+    listing.fuel,
+    listing.city,
+    listing.transmission,
+    listing.seller,
+    ORIGIN_LABELS[listing.origin],
+    String(listing.year),
+  ]
+    .join(" ")
+    .toLowerCase();
+  return q.split(/\s+/).every((token) => haystack.includes(token));
+}
+
 export default function CarFoundApp() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [sourceTotal, setSourceTotal] = useState(0);
@@ -35,6 +55,8 @@ export default function CarFoundApp() {
   const [error, setError] = useState<string | null>(null);
   const [fetchedAt, setFetchedAt] = useState<string | null>(null);
 
+  const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
   const [make, setMake] = useState<"all" | Make>("all");
   const [origin, setOrigin] = useState<"all" | Origin>("all");
   const [fuel, setFuel] = useState<"all" | Fuel>("all");
@@ -78,6 +100,7 @@ export default function CarFoundApp() {
 
   const filtered = useMemo(() => {
     const rows = enriched.filter(({ listing }) => {
+      if (!matchesQuery(listing, deferredQuery)) return false;
       if (make !== "all" && listing.make !== make) return false;
       if (origin !== "all" && listing.origin !== origin) return false;
       if (fuel !== "all" && listing.fuel !== fuel) return false;
@@ -102,16 +125,26 @@ export default function CarFoundApp() {
     });
 
     return rows;
-  }, [enriched, make, origin, fuel, maxPrice, maxKm, minYear, sort]);
+  }, [enriched, deferredQuery, make, origin, fuel, maxPrice, maxKm, minYear, sort]);
 
   const selected = filtered.find((r) => r.listing.id === selectedId) ?? filtered[0] ?? null;
+
+  function runSearch(nextQuery?: string) {
+    if (typeof nextQuery === "string") setQuery(nextQuery);
+    document.getElementById("anuncios")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function onSearchSubmit(event: FormEvent) {
+    event.preventDefault();
+    runSearch();
+  }
 
   return (
     <div className="app">
       <nav className="site-nav" aria-label="Principal">
         <div className="nav-brand">Car Found</div>
-        <a className="nav-link" href="#anuncios">
-          Ver anúncios
+        <a className="nav-link" href="#pesquisar">
+          Pesquisar
         </a>
       </nav>
 
@@ -121,31 +154,77 @@ export default function CarFoundApp() {
         </div>
         <div className="hero-copy">
           <p className="hero-brand">Car Found</p>
-          <h1 className="hero-title">Mercedes, Audi, BMW e Volvo até 25 000 €</h1>
+          <h1 className="hero-title">Pesquisa o teu próximo carro na Europa</h1>
           <p className="hero-lead">
-            Anúncios reais no AutoScout24 com até 100 000 km — e estimativa de ISV, transporte e
-            matrícula em Portugal.
+            Mercedes, Audi, BMW e Volvo até 25 000 € e 100 000 km — com estimativa de importação
+            para Portugal.
           </p>
-          <div className="cta-row">
-            <a className="btn btn-primary" href="#anuncios">
-              Explorar anúncios
-            </a>
-            <a className="btn btn-ghost" href="#como-funciona">
-              Como funciona
-            </a>
+
+          <form id="pesquisar" className="hero-search" onSubmit={onSearchSubmit} role="search">
+            <label className="sr-only" htmlFor="hero-query">
+              Pesquisar carro
+            </label>
+            <input
+              id="hero-query"
+              type="search"
+              enterKeyHint="search"
+              placeholder="Ex.: Volvo XC40, Audi A3, BMW 118…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              autoComplete="off"
+            />
+            <button type="submit" className="btn btn-primary">
+              Pesquisar
+            </button>
+          </form>
+
+          <div className="search-suggestions" aria-label="Sugestões rápidas">
+            {QUICK_SEARCHES.map((term) => (
+              <button
+                key={term}
+                type="button"
+                className="suggestion-chip"
+                onClick={() => runSearch(term)}
+              >
+                {term}
+              </button>
+            ))}
           </div>
         </div>
       </header>
 
       <section className="section" id="anuncios">
         <div className="section-head">
-          <p className="section-kicker">AutoScout24 · ≤ 25 000 € · ≤ 100 000 km</p>
-          <h2 className="section-title">Anúncios premium com custo em Portugal</h2>
+          <p className="section-kicker">Resultados · AutoScout24</p>
+          <h2 className="section-title">Anúncios com custo em Portugal</h2>
           <p className="section-lead">
-            Mercedes-Benz, Audi, BMW e Volvo. Cada linha mostra o preço no anúncio e o valor
+            Escreve marca ou modelo acima, ou afina aqui. Cada linha mostra o preço e o valor
             estimado à porta em Portugal.
           </p>
         </div>
+
+        <form className="results-search" onSubmit={onSearchSubmit} role="search">
+          <label htmlFor="results-query">A tua pesquisa</label>
+          <div className="results-search-row">
+            <input
+              id="results-query"
+              type="search"
+              enterKeyHint="search"
+              placeholder="Marca, modelo, cidade, combustível…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              autoComplete="off"
+            />
+            {query ? (
+              <button type="button" className="btn btn-ghost" onClick={() => setQuery("")}>
+                Limpar
+              </button>
+            ) : null}
+            <button type="submit" className="btn btn-primary">
+              Pesquisar
+            </button>
+          </div>
+        </form>
 
         <div className="sample-banner" role="status">
           Fonte: AutoScout24
@@ -271,14 +350,16 @@ export default function CarFoundApp() {
           <span>
             {loading
               ? "A obter anúncios reais…"
-              : `${filtered.length} ${filtered.length === 1 ? "carro encontrado" : "carros encontrados"}`}
+              : deferredQuery.trim()
+                ? `${filtered.length} resultado${filtered.length === 1 ? "" : "s"} para “${deferredQuery.trim()}”`
+                : `${filtered.length} ${filtered.length === 1 ? "carro encontrado" : "carros encontrados"}`}
           </span>
           <span>Estimativa ISV orientativa · UE → Portugal</span>
         </div>
 
         {!loading && filtered.length === 0 && !error ? (
           <div className="empty">
-            Nenhum carro com estes filtros. Alarga a marca, o ano ou o combustível.
+            Nada encontrado para esta pesquisa. Experimenta outro modelo ou limpa os filtros.
           </div>
         ) : (
           <div className="listing-grid" role="list">
@@ -378,28 +459,27 @@ export default function CarFoundApp() {
           <p className="section-kicker">Processo</p>
           <h2 className="section-title">Do anúncio europeu à matrícula portuguesa</h2>
           <p className="section-lead">
-            Três passos para decidir se aquele Mercedes, Audi, BMW ou Volvo vale o importe.
+            Pesquisa, compara o custo em Portugal e abre o anúncio original no AutoScout24.
           </p>
         </div>
         <div className="steps">
           <article className="step">
-            <h3>Encontra o carro</h3>
+            <h3>Pesquisa</h3>
             <p>
-              Filtra anúncios reais no AutoScout24 até 25 000 € e 100 000 km nas quatro marcas.
+              Escreve marca ou modelo (XC40, A3, 118…) dentro do orçamento de 25 000 € e 100 000 km.
             </p>
           </article>
           <article className="step">
             <h3>Estima o ISV</h3>
             <p>
-              Usa CO₂ estimado, cilindrada e idade para projetar impostos e despesas até à
-              matrícula em Portugal.
+              Vê transporte, ISV e matrícula estimados antes de avançar para a importação.
             </p>
           </article>
           <article className="step">
-            <h3>Abre o anúncio original</h3>
+            <h3>Abre o anúncio</h3>
             <p>
-              Confirma fotos, histórico e contacto no AutoScout24 e valida o cálculo oficial com
-              um despachante.
+              Confirma fotos e contacto no AutoScout24 e valida o cálculo oficial com um
+              despachante.
             </p>
           </article>
         </div>
@@ -407,8 +487,8 @@ export default function CarFoundApp() {
 
       <footer className="site-footer">
         <div>
-          <strong>Car Found</strong> — Mercedes, Audi, BMW e Volvo no AutoScout24 para importar
-          para Portugal.
+          <strong>Car Found</strong> — pesquisa Mercedes, Audi, BMW e Volvo no AutoScout24 para
+          importar para Portugal.
         </div>
         <div>Estimativas não oficiais · confirma sempre com a AT / IMT.</div>
       </footer>
